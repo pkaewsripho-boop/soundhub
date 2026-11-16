@@ -10,6 +10,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 import socket
@@ -150,7 +151,9 @@ routes = web.RouteTableDef()
 
 @routes.get("/")
 async def index(_):
-    return web.FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
+    # ส่งเป็นข้อมูลธรรมดา (ไม่ใช้ FileResponse/sendfile ซึ่งพังบนเซิร์ฟเวอร์คลาวด์บางเจ้า)
+    return web.Response(body=(STATIC / "index.html").read_bytes(), content_type="text/html",
+                        charset="utf-8", headers={"Cache-Control": "no-cache"})
 
 
 @routes.get("/api/config")
@@ -260,8 +263,9 @@ async def files(req):
         nice = req.query.get("name") or p.name
         nice = re.sub(r'[\\/:*?"<>|\r\n]+', "_", nice)
         headers["Content-Disposition"] = f"attachment; filename=\"voice{p.suffix}\"; filename*=UTF-8''{quote(nice)}"
-    ctype = "audio/mpeg" if p.suffix == ".mp3" else "text/plain; charset=utf-8"
-    return web.FileResponse(p, headers={**headers, "Content-Type": ctype})
+    if p.suffix == ".mp3":
+        return web.Response(body=p.read_bytes(), content_type="audio/mpeg", headers=headers)
+    return web.Response(body=p.read_bytes(), content_type="text/plain", charset="utf-8", headers=headers)
 
 
 LOGIN_HTML = """<!DOCTYPE html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -336,6 +340,7 @@ def main():
         except Exception:  # noqa: BLE001
             pass
 
+    logging.basicConfig(level=logging.INFO, format="%(message)s")  # แสดงทุกครั้งที่มีคนเปิดเว็บใน Logs
     app = web.Application(client_max_size=2 * 1024 * 1024, middlewares=[auth_mw])
     app.add_routes(routes)
 
@@ -351,7 +356,8 @@ def main():
     print("=" * 56)
     if not a.no_browser:
         webbrowser.open(f"http://localhost:{a.port}")
-    web.run_app(app, host=a.host, port=a.port, print=None)
+    web.run_app(app, host=a.host, port=a.port, print=None,
+                access_log_format='%a "%r" %s %b')
 
 
 if __name__ == "__main__":
