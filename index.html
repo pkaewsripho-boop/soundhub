@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Thai Voice Studio</title>
+<link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f7f7f8;--card:#fff;--line:#e7e7ea;--text:#18181b;--mut:#71717a;--acc:#18181b;--soft:#f1f1f3;--pur:#7c3aed}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.55 "Prompt","Leelawadee UI","Tahoma",system-ui,sans-serif}
+button,input,textarea,select{font:inherit;color:inherit}
+button{cursor:pointer}
+header{display:flex;align-items:center;gap:18px;padding:12px 24px;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10}
+.logo{display:flex;align-items:center;gap:10px;font-weight:600;font-size:17px}
+.logo i{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#111,#7c3aed);display:grid;place-items:center;color:#fff;font-style:normal;font-size:15px}
+.tabs{display:flex;gap:4px;background:var(--soft);padding:4px;border-radius:10px}
+.tabs button{border:0;background:none;padding:6px 14px;border-radius:7px;color:var(--mut)}
+.tabs button.on{background:#fff;color:var(--text);box-shadow:0 1px 2px #0001}
+.sp{flex:1}
+.status{font-size:12.5px;color:var(--mut);display:flex;align-items:center;gap:6px}
+.status b{width:8px;height:8px;border-radius:50%;background:#a1a1aa}
+.status.ok b{background:#22c55e}.status.bad b{background:#ef4444}
+main{max-width:1240px;margin:0 auto;padding:22px 24px 140px}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:22px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px}
+.editor{display:flex;flex-direction:column;min-height:520px}
+.editor textarea{flex:1;border:0;outline:none;resize:none;padding:22px 24px;font-size:17px;line-height:1.75;background:transparent;min-height:420px;border-radius:16px 16px 0 0}
+.efoot{display:flex;align-items:center;gap:10px;padding:12px 16px;border-top:1px solid var(--line);flex-wrap:wrap}
+.chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:5px 12px;font-size:13px}
+.chip:hover{background:var(--soft)}
+.chip.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+.count{color:var(--mut);font-size:12.5px}
+.gen{background:var(--acc);color:#fff;border:0;border-radius:12px;padding:11px 22px;font-weight:500;display:flex;align-items:center;gap:8px}
+.gen:disabled{opacity:.5;cursor:default}
+.gen kbd{font-size:11px;opacity:.6;font-family:inherit}
+.side{padding:18px}
+.side h3{margin:0 0 10px;font-size:14px;font-weight:600}
+.sec{margin-bottom:22px}
+.voices{display:flex;flex-direction:column;gap:6px}
+.voice{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;padding:9px 10px;cursor:pointer;background:#fff}
+.voice:hover{border-color:#c4c4cc}
+.voice.on{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset}
+.av{width:36px;height:36px;border-radius:50%;flex:none;display:grid;place-items:center;color:#fff;font-weight:600}
+.vinfo{flex:1;min-width:0}
+.vinfo div{font-weight:500}
+.vinfo small{color:var(--mut);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pv{width:32px;height:32px;border-radius:50%;border:1px solid var(--line);background:#fff;flex:none;display:grid;place-items:center}
+.pv:hover{background:var(--soft)}
+.pv svg{width:12px;height:12px;fill:currentColor}
+.more{border:0;background:none;color:var(--pur);padding:6px 0;font-size:13px}
+.tones{display:flex;flex-wrap:wrap;gap:6px}
+.sl{margin-bottom:14px}
+.sl label{display:flex;justify-content:space-between;font-size:13px;margin-bottom:2px}
+.sl label span{color:var(--mut)}
+.sl input{width:100%;accent-color:#18181b}
+.sl .ends{display:flex;justify-content:space-between;font-size:11.5px;color:var(--mut)}
+.row2{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.tg{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13.5px}
+.tg input{width:18px;height:18px;accent-color:#18181b}
+.link{border:0;background:none;color:var(--mut);font-size:12.5px;text-decoration:underline}
+.hint{font-size:12.5px;color:var(--mut);margin:6px 0 0}
+/* player */
+.player{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--line);padding:12px 24px;display:none;z-index:20;box-shadow:0 -6px 20px #0000000a}
+.player.on{display:block}
+.pin{max-width:1240px;margin:0 auto;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.pmeta{min-width:0;flex:1 1 220px}
+.pmeta div{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pmeta small{color:var(--mut)}
+.player audio{flex:2 1 320px;height:40px}
+.dl{display:flex;gap:8px}
+.btn{border:1px solid var(--line);background:#fff;border-radius:10px;padding:8px 14px;text-decoration:none;color:var(--text);font-size:13.5px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.btn:hover{background:var(--soft)}
+.btn.dark{background:var(--acc);color:#fff;border-color:var(--acc)}
+.btn.dark:hover{background:#333}
+/* history */
+.hist{display:none}
+.hitem{display:flex;align-items:center;gap:14px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.hitem:last-child{border-bottom:0}
+.hitem .ht{flex:1;min-width:0}
+.hitem .ht div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hitem .ht small{color:var(--mut)}
+.hitem .hb{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.del:hover{color:#dc2626;border-color:#fca5a5}
+.empty{padding:40px;text-align:center;color:var(--mut)}
+.spin{width:16px;height:16px;border:2px solid #fff6;border-top-color:#fff;border-radius:50%;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+#toast{position:fixed;left:50%;top:70px;transform:translateX(-50%);background:#18181b;color:#fff;padding:10px 18px;border-radius:10px;opacity:0;transition:.2s;pointer-events:none;z-index:50;max-width:90vw}
+#toast.on{opacity:1}#toast.err{background:#b91c1c}
+@media (max-width:900px){.grid{grid-template-columns:1fr}.editor{min-height:0}.editor textarea{min-height:260px}header{padding:10px 14px;gap:10px}main{padding:14px 12px 170px}.status span{display:none}.logo span{display:none}.tabs button{white-space:nowrap}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><i>◉</i><span>Thai Voice Studio</span></div>
+  <div class="tabs"><button class="on" data-tab="gen">สร้างเสียง</button><button data-tab="hist">ประวัติ</button></div>
+  <div class="sp"></div>
+  <div class="status" id="status"><b></b><span>กำลังเชื่อมต่อ…</span></div>
+</header>
+
+<main>
+  <section id="genView" class="grid">
+    <div class="card editor">
+      <textarea id="text" placeholder="พิมพ์หรือวางข้อความที่ต้องการให้ AI อ่าน…&#10;&#10;เคล็ดลับ: เว้นบรรทัดหรือใส่ … เพื่อให้หยุดหายใจ"></textarea>
+      <div class="efoot">
+        <button class="chip" id="sample">ใส่ข้อความตัวอย่าง</button>
+        <button class="chip" id="clear">ล้าง</button>
+        <span class="count" id="count">0 / 20,000</span>
+        <div class="sp"></div>
+        <button class="gen" id="gen"><span id="genLbl">สร้างเสียง</span> <kbd>Ctrl+Enter</kbd></button>
+      </div>
+    </div>
+    <aside class="card side">
+      <div class="sec">
+        <h3>เสียง</h3>
+        <div class="voices" id="voices"></div>
+        <button class="more" id="moreBtn" hidden></button>
+        <div class="voices" id="voicesMulti" hidden></div>
+      </div>
+      <div class="sec">
+        <h3>โทนเสียง</h3>
+        <div class="tones" id="tones"></div>
+      </div>
+      <div class="sec">
+        <div class="sl"><label>ความเร็ว <span id="vRate"></span></label><input type="range" id="rate" min="-50" max="50" step="1"><div class="ends"><span>ช้า</span><span>เร็ว</span></div></div>
+        <div class="sl"><label>ระดับเสียง (ทุ้ม–แหลม) <span id="vPitch"></span></label><input type="range" id="pitch" min="-30" max="30" step="1"><div class="ends"><span>ทุ้ม</span><span>แหลม</span></div></div>
+        <div class="sl"><label>ความดัง <span id="vVol"></span></label><input type="range" id="volume" min="-50" max="50" step="1"><div class="ends"><span>เบา</span><span>ดัง</span></div></div>
+        <div class="row2"><label class="tg"><input type="checkbox" id="srt" checked>สร้างไฟล์ซับไตเติล (.srt)</label><button class="link" id="reset">รีเซ็ต</button></div>
+        <p class="hint">กดปุ่ม ▶ ข้างชื่อเสียงเพื่อฟังตัวอย่างพร้อมค่าที่ตั้งไว้</p>
+      </div>
+    </aside>
+  </section>
+
+  <section id="histView" class="card hist"><div id="histList"></div></section>
+</main>
+
+<div class="player" id="player"><div class="pin">
+  <div class="pmeta"><div id="pTitle"></div><small id="pSub"></small></div>
+  <audio id="audio" controls preload="auto"></audio>
+  <div class="dl"><a class="btn dark" id="dlMp3" href="#">⬇ MP3</a><a class="btn" id="dlSrt" href="#">⬇ SRT</a></div>
+</div></div>
+<div id="toast"></div>
+
+<script>
+"use strict";
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let tt;function toast(m,isErr){const t=$('#toast');t.textContent=m;t.className=isErr?'on err':'on';clearTimeout(tt);tt=setTimeout(()=>t.className='',isErr?5000:2500)}
+const fmtDur=s=>{s=Math.round(s);return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`};
+
+const TONES=[
+  {k:'normal',n:'ปกติ',r:0,p:0,v:0},
+  {k:'doc',n:'สารคดี',r:-6,p:-3,v:0},
+  {k:'mystery',n:'ลึกลับ / น่าขนลุก',r:-16,p:-10,v:-5},
+  {k:'excited',n:'ตื่นเต้น',r:14,p:5,v:5},
+  {k:'news',n:'ข่าว',r:6,p:0,v:0},
+  {k:'soft',n:'นุ่มนวล',r:-10,p:2,v:-10},
+  {k:'bright',n:'สดใส',r:6,p:12,v:0},
+  {k:'deep',n:'ทุ้มลึก',r:-5,p:-18,v:0},
+  {k:'fast',n:'เร็วแบบ TikTok',r:25,p:2,v:5},
+];
+const SAMPLE='รู้หรือไม่? ในมหาสมุทรลึกกว่าสี่พันเมตร มีสิ่งมีชีวิตที่ไม่เคยเห็นแสงอาทิตย์เลยตลอดชีวิต\n\nพวกมันสร้างแสงขึ้นเองได้ เพื่อล่อเหยื่อ และสื่อสารกันในความมืด…\n\nแล้วคุณล่ะ เคยรู้เรื่องนี้มาก่อนไหม?';
+const COLORS=['#7c3aed','#0ea5e9','#f97316','#10b981','#e11d48','#6366f1','#14b8a6','#d946ef'];
+
+let S={voice:'th-TH-PremwadeeNeural',voiceName:'เปรมวดี',tone:'doc',rate:-6,pitch:-3,volume:0,srt:true,text:''};
+try{Object.assign(S,JSON.parse(localStorage.getItem('tvs')||'{}'))}catch(e){}
+const save=()=>{try{localStorage.setItem('tvs',JSON.stringify(S))}catch(e){}};
+let VO={thai:[],multi:[]},maxChars=20000,busy=false,pvAudio=null;
+
+function renderVoices(){
+  const row=(v,i)=>`<div class="voice ${S.voice===v.id?'on':''}" data-id="${v.id}" data-name="${esc(v.name)}"><div class="av" style="background:${COLORS[i%COLORS.length]}">${esc(v.name[0]||'?')}</div><div class="vinfo"><div>${esc(v.name)} <small style="display:inline;color:var(--mut)">· ${esc(v.gender||'')}</small></div><small>${esc(v.desc||v.id)}</small></div><button class="pv" data-pv="${v.id}" title="ฟังตัวอย่าง"><svg viewBox="0 0 10 10"><path d="M2.5 1l6.5 4-6.5 4z"/></svg></button></div>`;
+  $('#voices').innerHTML=VO.thai.map(row).join('');
+  $('#voicesMulti').innerHTML=VO.multi.map((v,i)=>row(v,i+3)).join('');
+  const mb=$('#moreBtn');mb.hidden=!VO.multi.length;
+  mb.textContent=($('#voicesMulti').hidden?'+ ':'− ')+`เสียงหลายภาษา (ทดลอง) ${VO.multi.length} เสียง`;
+  if(VO.multi.some(v=>v.id===S.voice))$('#voicesMulti').hidden=false;
+}
+function renderTones(){$('#tones').innerHTML=TONES.map(t=>`<button class="chip ${S.tone===t.k?'on':''}" data-tone="${t.k}">${t.n}</button>`).join('')}
+function syncSliders(){
+  $('#rate').value=S.rate;$('#pitch').value=S.pitch;$('#volume').value=S.volume;$('#srt').checked=S.srt;
+  $('#vRate').textContent=(S.rate>0?'+':'')+S.rate+'%';$('#vPitch').textContent=(S.pitch>0?'+':'')+S.pitch;$('#vVol').textContent=(S.volume>0?'+':'')+S.volume+'%';
+}
+function updCount(){const n=$('#text').value.length;$('#count').textContent=`${n.toLocaleString()} / ${maxChars.toLocaleString()}`;$('#count').style.color=n>maxChars?'#dc2626':''}
+
+document.addEventListener('click',async e=>{
+  const pv=e.target.closest('[data-pv]');
+  if(pv){e.stopPropagation();return preview(pv.dataset.pv,pv)}
+  const v=e.target.closest('.voice');
+  if(v){S.voice=v.dataset.id;S.voiceName=v.dataset.name;save();$$('.voice').forEach(x=>x.classList.toggle('on',x===v));return}
+  const t=e.target.closest('[data-tone]');
+  if(t){const o=TONES.find(x=>x.k===t.dataset.tone);Object.assign(S,{tone:o.k,rate:o.r,pitch:o.p,volume:o.v});save();renderTones();syncSliders();return}
+  const tab=e.target.closest('[data-tab]');
+  if(tab){$$('.tabs button').forEach(b=>b.classList.toggle('on',b===tab));const h=tab.dataset.tab==='hist';$('#genView').style.display=h?'none':'';$('#histView').style.display=h?'block':'none';if(h)loadHist()}
+});
+$('#moreBtn').onclick=()=>{const m=$('#voicesMulti');m.hidden=!m.hidden;renderVoices()};
+for(const k of ['rate','pitch','volume'])$('#'+k).addEventListener('input',e=>{S[k]=+e.target.value;S.tone='';save();syncSliders();renderTones()});
+$('#srt').onchange=e=>{S.srt=e.target.checked;save()};
+$('#reset').onclick=()=>{Object.assign(S,{tone:'normal',rate:0,pitch:0,volume:0});save();renderTones();syncSliders()};
+$('#text').addEventListener('input',()=>{S.text=$('#text').value;updCount();clearTimeout(window._st);window._st=setTimeout(save,400)});
+$('#sample').onclick=()=>{$('#text').value=SAMPLE;S.text=SAMPLE;save();updCount()};
+$('#clear').onclick=()=>{$('#text').value='';S.text='';save();updCount();$('#text').focus()};
+$('#gen').onclick=generate;
+document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){e.preventDefault();generate()}});
+
+async function api(url,opt){
+  const r=await fetch(url,opt);if(r.status===401){location.href='/login';throw new Error('กรุณาเข้าสู่ระบบ')}let j=null;try{j=await r.json()}catch(e){}
+  if(!r.ok)throw new Error(j&&j.error||`เกิดข้อผิดพลาด (${r.status})`);return j;
+}
+const params=()=>({voice:S.voice,voice_name:S.voiceName,rate:S.rate,pitch:S.pitch,volume:S.volume,tone:(TONES.find(t=>t.k===S.tone)||{}).n||'กำหนดเอง'});
+
+async function preview(id,btn){
+  if(pvAudio&&!pvAudio.paused&&pvAudio._id===id){pvAudio.pause();return}
+  if(pvAudio)pvAudio.pause();
+  const old=btn.innerHTML;btn.innerHTML='<span class="spin" style="border-color:#0002;border-top-color:#000"></span>';
+  try{const j=await api('/api/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...params(),voice:id})});
+    pvAudio=new Audio(j.url);pvAudio._id=id;await pvAudio.play()}
+  catch(err){toast(err.message,true)}
+  finally{btn.innerHTML=old}
+}
+async function generate(){
+  if(busy)return;const text=$('#text').value.trim();
+  if(!text){toast('พิมพ์ข้อความก่อนนะ');$('#text').focus();return}
+  if(text.length>maxChars){toast(`ข้อความยาวเกิน ${maxChars.toLocaleString()} ตัวอักษร`,true);return}
+  busy=true;$('#gen').disabled=true;$('#genLbl').innerHTML='<span class="spin"></span>';
+  const est=Math.max(2,Math.round(text.length/120));$('#genLbl').insertAdjacentText('beforeend',` กำลังสร้าง… (~${est} วิ)`);
+  try{const it=await api('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,...params(),srt:S.srt})});
+    showPlayer(it,true);toast('สร้างเสียงเสร็จแล้ว')}
+  catch(err){toast(err.message,true)}
+  finally{busy=false;$('#gen').disabled=false;$('#genLbl').textContent='สร้างเสียง'}
+}
+function dlName(it,ext){const base=(it.text||'voice').replace(/[\\/:*?"<>|\r\n]+/g,' ').trim().slice(0,30)||'voice';return `${base} - ${it.voice_name||'voice'}.${ext}`}
+function dlUrl(file,name){return `/files/${encodeURIComponent(file)}?dl=1&name=${encodeURIComponent(name)}`}
+function showPlayer(it,autoplay){
+  $('#player').classList.add('on');
+  $('#pTitle').textContent=it.text.replace(/\s+/g,' ');
+  $('#pSub').textContent=[it.voice_name,it.tone,fmtDur(it.duration)].filter(Boolean).join(' · ');
+  const a=$('#audio');a.src='/files/'+encodeURIComponent(it.mp3);if(autoplay)a.play().catch(()=>{});
+  $('#dlMp3').href=dlUrl(it.mp3,dlName(it,'mp3'));
+  const s=$('#dlSrt');if(it.srt){s.style.display='';s.href=dlUrl(it.srt,dlName(it,'srt'))}else s.style.display='none';
+}
+async function loadHist(){
+  const el=$('#histList');el.innerHTML='<div class="empty">กำลังโหลด…</div>';
+  try{const h=await api('/api/history');
+    if(!h.length){el.innerHTML='<div class="empty">ยังไม่มีเสียงที่สร้างไว้</div>';return}
+    el.innerHTML=h.map(it=>`<div class="hitem" data-id="${it.id}"><div class="ht"><div>${esc(it.text.replace(/\s+/g,' ').slice(0,200))}</div><small>${esc([it.voice_name,it.tone,fmtDur(it.duration),new Date(it.created*1000).toLocaleString('th-TH',{dateStyle:'medium',timeStyle:'short'})].filter(Boolean).join(' · '))}</small></div>
+      <div class="hb"><button class="btn" data-act="play">▶ ฟัง</button><button class="btn" data-act="reuse" title="ใส่ข้อความและค่าเดิมกลับไปแก้">ใช้ข้อความนี้</button><a class="btn dark" href="${dlUrl(it.mp3,dlName(it,'mp3'))}">⬇ MP3</a>${it.srt?`<a class="btn" href="${dlUrl(it.srt,dlName(it,'srt'))}">⬇ SRT</a>`:''}<button class="btn del" data-act="del">ลบ</button></div></div>`).join('');
+    el.onclick=async e=>{const b=e.target.closest('[data-act]');if(!b)return;const id=b.closest('.hitem').dataset.id;const it=h.find(x=>x.id===id);
+      if(b.dataset.act==='play')showPlayer(it,true);
+      else if(b.dataset.act==='reuse'){$('#text').value=it.text;S.text=it.text;S.voice=it.voice;S.voiceName=it.voice_name;S.rate=parseInt(it.rate);S.pitch=parseInt(it.pitch);S.volume=parseInt(it.volume);S.tone='';save();renderVoices();renderTones();syncSliders();updCount();$('[data-tab="gen"]').click()}
+      else if(b.dataset.act==='del'){b.disabled=true;await api('/api/history/'+id,{method:'DELETE'});loadHist()}};
+  }catch(err){el.innerHTML=`<div class="empty">${esc(err.message)}</div>`}
+}
+async function boot(){
+  $('#text').value=S.text||'';updCount();renderTones();syncSliders();
+  try{const c=await api('/api/config');VO=c.voices;maxChars=c.max_chars;
+    if(![...VO.thai,...VO.multi].some(v=>v.id===S.voice)&&VO.thai[0]){S.voice=VO.thai[0].id;S.voiceName=VO.thai[0].name}
+    renderVoices();updCount();
+    const st=$('#status');st.className='status '+(VO.online?'ok':'bad');st.querySelector('span').textContent=VO.online?'พร้อมใช้งาน':'ออฟไลน์ — ต้องต่ออินเทอร์เน็ต';
+  }catch(e){const st=$('#status');st.className='status bad';st.querySelector('span').textContent='ติดต่อโปรแกรมไม่ได้'}
+}
+boot();
+</script>
+</body>
+</html>
