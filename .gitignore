@@ -1,0 +1,7 @@
+# ไฟล์เสียงที่สร้าง และไฟล์ติดตั้งในเครื่อง (ไม่ต้องอัปขึ้น GitHub)
+outputs/
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
