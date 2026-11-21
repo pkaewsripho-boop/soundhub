@@ -23,6 +23,8 @@ from urllib.parse import quote
 
 from aiohttp import web
 import edge_tts
+from edge_tts.srt_composer import Subtitle, compose
+from datetime import timedelta
 
 BASE = Path(__file__).resolve().parent
 STATIC = BASE / "static"
@@ -47,6 +49,7 @@ THAI_INFO = {
 FALLBACK_THAI = ["th-TH-PremwadeeNeural", "th-TH-NiwatNeural"]
 GENDER_TH = {"Female": "หญิง", "Male": "ชาย"}
 PREVIEW_TEXT = "สวัสดีครับ รู้หรือไม่ว่าเสียงนี้สร้างขึ้นด้วยปัญญาประดิษฐ์ทั้งหมด"
+PREVIEW_TEXT_NATURAL = "รู้หรือไม่? เสียงที่คุณกำลังฟังอยู่นี้… สร้างขึ้นด้วยปัญญาประดิษฐ์ทั้งหมด!"
 
 _voices_cache = None
 _hist_lock = asyncio.Lock()
@@ -95,28 +98,243 @@ def slugify(text):
     return s or "voice"
 
 
-async def synthesize(text, voice, rate, pitch, volume, mp3_path: Path, srt_path: Path | None):
+async def synth_bytes(text, voice, rate, pitch, volume):
+    """สร้างเสียง 1 ท่อน ได้ (ไฟล์ MP3 เป็น bytes, รายการซับ)"""
     com = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch, volume=volume, boundary="SentenceBoundary")
     sub = edge_tts.SubMaker()
+    buf = bytearray()
+    async for chunk in com.stream():
+        if chunk["type"] == "audio":
+            buf += chunk["data"]
+        elif chunk["type"] in ("WordBoundary", "SentenceBoundary"):
+            sub.feed(chunk)
+    if not buf:
+        raise RuntimeError("ไม่ได้รับเสียงกลับมา")
+    return bytes(buf), sub.cues
+
+
+def write_out(audio: bytes, cues, mp3_path: Path, srt_path: Path | None):
     tmp = mp3_path.with_suffix(".part")
-    got = 0
-    try:
-        with open(tmp, "wb") as f:
-            async for chunk in com.stream():
-                if chunk["type"] == "audio":
-                    f.write(chunk["data"])
-                    got += len(chunk["data"])
-                elif chunk["type"] in ("WordBoundary", "SentenceBoundary"):
-                    sub.feed(chunk)
-        if not got:
-            raise RuntimeError("ไม่ได้รับเสียงกลับมา")
-        os.replace(tmp, mp3_path)
-    finally:
-        if tmp.exists():
-            tmp.unlink()
+    tmp.write_bytes(audio)
+    os.replace(tmp, mp3_path)
     if srt_path is not None:
-        srt_path.write_text(sub.get_srt(), encoding="utf-8")
-    return got
+        srt_path.write_text(compose(cues), encoding="utf-8")
+    return len(audio)
+
+
+async def synthesize(text, voice, rate, pitch, volume, mp3_path: Path, srt_path: Path | None):
+    audio, cues = await synth_bytes(text, voice, rate, pitch, volume)
+    return write_out(audio, cues, mp3_path, srt_path)
+
+
+# ================= โหมดเล่าเรื่องแบบธรรมชาติ + แท็กอารมณ์ =================
+# edge-tts ปรับได้แค่ ความเร็ว / ระดับเสียง / ความดัง ต่อ 1 คำขอ
+# เลยแบ่งข้อความเป็นท่อน (ประโยค) ให้แต่ละท่อนมีจังหวะต่างกันเล็กน้อย แล้วต่อด้วยช่วงเงียบที่จังหวะเหมาะสม
+
+# เฟรม MP3 เงียบ 24 มิลลิวินาที (MPEG-2 Layer III 24kHz 48kbps mono รูปแบบเดียวกับที่ edge-tts ส่งมา)
+SILENT_FRAME = bytes.fromhex("fff364c40000000348000000004c414d455555554c414d45332e313030" + "55" * 115)
+assert len(SILENT_FRAME) == 144
+BYTES_PER_SEC = BITRATE // 8
+
+
+def silence(ms):
+    return SILENT_FRAME * max(0, round(ms / 24))
+
+
+# แท็กอารมณ์: ค่าที่บวกเพิ่มจากค่าที่ตั้งไว้ (ความเร็ว %, ระดับเสียง Hz, ความดัง %)
+TAGS = {
+    "ปกติ": (0, 0, 0),
+    "สารคดี": (-6, -3, 0),
+    "ลึกลับ": (-16, -10, -5),
+    "ตื่นเต้น": (14, 6, 6),
+    "กระซิบ": (-12, -4, -28),
+    "จริงจัง": (-6, -7, 4),
+    "เศร้า": (-16, -9, -10),
+    "สดใส": (6, 12, 2),
+    "นุ่มนวล": (-10, 2, -10),
+    "โกรธ": (10, -4, 14),
+    "ช้า": (-15, 0, 0),
+    "เร็ว": (15, 0, 0),
+    "ดัง": (0, 0, 15),
+    "เบา": (0, 0, -15),
+}
+TAG_RE = re.compile(r"\[([^\[\]\n]{1,24})\]")
+PAUSE_RE = re.compile(r"^\s*(?:หยุด|pause)\s*([\d.]+)?\s*(?:วิ|วินาที|s|sec)?\s*$", re.I)
+WORDY = re.compile(r"[0-9A-Za-zก-ฮะ-์]")      # มีตัวอักษรที่อ่านออกเสียงได้
+LOOKS_TAG = re.compile(r"^[฀-๿\s]{1,14}$")              # แท็กภาษาไทยที่พิมพ์ผิด จะไม่อ่านออกเสียง
+SENT_END = re.compile(r"(?<=[?!？！…])\s+|(?<=\.\.\.)\s+|(?<=[^\d]\.)\s+")
+MAX_SEGMENTS = 600
+
+
+def has_tags(text):
+    for m in TAG_RE.finditer(text):
+        name = m.group(1).strip()
+        if name in TAGS or PAUSE_RE.match(name) or LOOKS_TAG.match(name):
+            return True
+    return False
+
+
+def _split_long(sent, limit=110):
+    """ประโยคยาวมาก ตัดตามช่องว่างให้เป็นท่อนละ ~50–100 ตัวอักษร"""
+    if len(sent) <= limit or " " not in sent:
+        return [sent]
+    parts, cur = [], ""
+    for w in sent.split(" "):
+        if cur and len(cur) + 1 + len(w) > 95 and len(cur) >= 45:
+            parts.append(cur)
+            cur = w
+        else:
+            cur = f"{cur} {w}" if cur else w
+    if cur:
+        if parts and len(cur) < 20:
+            parts[-1] += " " + cur
+        else:
+            parts.append(cur)
+    return parts
+
+
+def parse_script(text):
+    """แปลงข้อความเป็นรายการ: ("seg", ข้อความ, (r,p,v) ของแท็ก, ชนิดการเว้นหลังท่อน) หรือ ("pause", ms)"""
+    items, unknown = [], []
+    style = (0, 0, 0)
+    pos = 0
+    chunks = []  # (ข้อความ, style)
+    for m in TAG_RE.finditer(text):
+        name = m.group(1).strip()
+        pm = PAUSE_RE.match(name)
+        if name in TAGS or pm or LOOKS_TAG.match(name):
+            chunks.append((text[pos:m.start()], style))
+            pos = m.end()
+            if name in TAGS:
+                style = TAGS[name]
+            elif pm:
+                sec = float(pm.group(1)) if pm.group(1) else 0.8
+                chunks.append((("__PAUSE__", int(min(10, max(0.1, sec)) * 1000)), style))
+            else:
+                unknown.append(name)
+    chunks.append((text[pos:], style))
+
+    for body, st in chunks:
+        if isinstance(body, tuple):
+            items.append(("pause", body[1]))
+            continue
+        paras = re.split(r"\n\s*\n", body)
+        for pi, para in enumerate(paras):
+            lines = [ln for ln in para.split("\n")]
+            for li, line in enumerate(lines):
+                sents = [s.strip() for s in SENT_END.split(line.strip()) if s.strip()]
+                for si, s in enumerate(sents):
+                    parts = _split_long(s)
+                    for ci, c in enumerate(parts):
+                        last_c, last_s = ci == len(parts) - 1, si == len(sents) - 1
+                        if not last_c:
+                            brk = "clause"
+                        elif not last_s:
+                            brk = "sent"
+                        elif li < len(lines) - 1:
+                            brk = "line"
+                        elif pi < len(paras) - 1:
+                            brk = "para"
+                        else:
+                            brk = "sent"
+                        if WORDY.search(c):
+                            items.append(("seg", c, st, brk))
+                        elif "…" in c or "..." in c:
+                            items.append(("pause", 500))  # "…" อยู่โดดๆ = หยุดหายใจ
+    return items, unknown
+
+
+# จังหวะพื้นฐานหลังท่อน (มิลลิวินาที)
+BASE_PAUSE = {"clause": 90, "sent": 260, "line": 420, "para": 750}
+PLAIN_PAUSE = {"clause": 40, "sent": 140, "line": 260, "para": 450}
+MICRO_R = [0, 3, -2, 2, -3, 1, -1, 2]
+MICRO_P = [2, -2, 3, -1, 0, -3, 1, -2]
+
+
+def plan_prosody(items, base, natural, level):
+    """คำนวณ ความเร็ว/ระดับเสียง/ความดัง และช่วงหยุด ของแต่ละท่อน"""
+    k = max(0.0, min(1.0, level / 100))
+    scale = 1.6 * k
+    segs = [i for i, x in enumerate(items) if x[0] == "seg"]
+    plan = []
+    seed = sum(ord(c) for c in "".join(x[1] for x in items if x[0] == "seg")) % 8
+    for n, idx in enumerate(segs):
+        _, txt, st, brk = items[idx]
+        r, p, v = (base[0] + st[0], base[1] + st[1], base[2] + st[2])
+        pause = (BASE_PAUSE if natural else PLAIN_PAUSE)[brk]
+        if natural:
+            t = txt.rstrip()
+            dr = dp = dv = 0
+            if t.endswith(("?", "？")) or re.search(r"(ไหม|มั้ย|หรือเปล่า|อะไร|ทำไม|อย่างไร|ยังไง)\s*$", t):
+                dr, dp = -2, 6
+                pause = max(pause, 420)
+            elif t.endswith(("!", "！")):
+                dr, dp, dv = 8, 4, 6
+                pause = max(pause, 380)
+            elif t.endswith(("…", "...")):
+                dr, dp, dv = -10, -4, -3
+                pause = max(pause, 650)
+            if n == 0 and len(segs) > 1:          # ประโยคเปิด ดึงความสนใจ
+                dr, dp, dv = dr - 5, dp + 3, dv + 3
+            elif n == len(segs) - 1 and len(segs) > 2:  # ประโยคปิด ช้าลงนิดให้ฟังจบสวย
+                dr, dp = dr - 6, dp + 1
+            if re.search(r"\d", t):               # ตัวเลข อ่านช้าลงให้ฟังชัด
+                dr -= 5
+            if len(t) <= 14:                       # ประโยคสั้น ห้วนๆ เน้นหนัก
+                dr, dv = dr - 8, dv + 3
+            elif len(t) > 80:
+                dr += 4
+            j = (n + seed) % 8
+            dr += MICRO_R[j] * 1.5
+            dp += MICRO_P[j] * 1.5
+            r, p, v = r + dr * scale, p + dp * scale, v + dv * scale
+            pause = int(pause * (0.6 + 0.7 * k))
+        # ประโยคก่อนช่วงหยุดที่ผู้ใช้ใส่เอง ไม่ต้องเว้นซ้ำ
+        if idx + 1 < len(items) and items[idx + 1][0] == "pause":
+            pause = min(pause, 120)
+        plan.append({"i": idx, "text": txt, "rate": fmt_params(r, p, v), "pause": pause})
+    return plan
+
+
+async def synthesize_script(text, voice, base, natural, level, mp3_path: Path, srt_path: Path | None):
+    items, unknown = parse_script(text)
+    plan = plan_prosody(items, base, natural, level)
+    if not plan:
+        raise ValueError("ไม่มีข้อความให้อ่าน (มีแต่แท็ก)")
+    if len(plan) > MAX_SEGMENTS:
+        raise ValueError(f"ข้อความแบ่งได้ {len(plan)} ท่อน เกิน {MAX_SEGMENTS} ท่อน ลองแบ่งสร้างทีละส่วน")
+    sem = asyncio.Semaphore(3)
+
+    async def one(seg):
+        async with sem:
+            for attempt in range(3):
+                try:
+                    return await synth_bytes(seg["text"], voice, *seg["rate"])
+                except Exception:  # noqa: BLE001
+                    if attempt == 2:
+                        raise
+                    await asyncio.sleep(1 + attempt)
+
+    results = await asyncio.gather(*(one(s) for s in plan))
+    by_idx = {s["i"]: (s, res) for s, res in zip(plan, results)}
+
+    out, cues = bytearray(), []
+    for i, it in enumerate(items):
+        if it[0] == "pause":
+            out += silence(it[1])
+            continue
+        seg, (audio, scues) = by_idx[i]
+        off = timedelta(seconds=len(out) / BYTES_PER_SEC)
+        dur = timedelta(seconds=len(audio) / BYTES_PER_SEC)
+        if scues:
+            for c in scues:
+                cues.append(Subtitle(index=len(cues) + 1, start=c.start + off, end=c.end + off, content=c.content))
+        else:
+            cues.append(Subtitle(index=len(cues) + 1, start=off, end=off + dur, content=seg["text"]))
+        out += audio
+        out += silence(seg["pause"])
+    size = write_out(bytes(out), cues, mp3_path, srt_path)
+    return size, len(plan), unknown
 
 
 def load_hist():
@@ -159,7 +377,7 @@ async def index(_):
 @routes.get("/api/config")
 async def config(_):
     v = await get_voices()
-    return web.json_response({"voices": v, "max_chars": MAX_CHARS})
+    return web.json_response({"voices": v, "max_chars": MAX_CHARS, "tags": list(TAGS)})
 
 
 @routes.post("/api/tts")
@@ -176,17 +394,26 @@ async def tts(req):
         return err(f"ข้อความยาวเกิน {MAX_CHARS:,} ตัวอักษร")
     if not re.fullmatch(r"[A-Za-z]{2,3}-[A-Za-z]{2,4}-[A-Za-z]+Neural", voice):
         return err("เลือกเสียงไม่ถูกต้อง")
-    rate, pitch, volume = fmt_params(data.get("rate", 0), data.get("pitch", 0), data.get("volume", 0))
+    base = tuple(int(data.get(k, 0) or 0) for k in ("rate", "pitch", "volume"))
+    rate, pitch, volume = fmt_params(*base)
     want_srt = bool(data.get("srt", True))
+    natural = bool(data.get("natural", False))
+    level = max(0, min(100, int(data.get("level", 60) or 0)))
 
     vid = uuid.uuid4().hex[:8]
-    stem = f"{time.strftime('%Y%m%d-%H%M%S')}_{slugify(text)}_{vid}"
+    stem = f"{time.strftime('%Y%m%d-%H%M%S')}_{slugify(TAG_RE.sub(' ', text))}_{vid}"
     mp3 = OUT / f"{stem}.mp3"
     srt = OUT / f"{stem}.srt" if want_srt else None
     t0 = time.time()
+    nseg, unknown = 1, []
     async with _sem:
         try:
-            size = await synthesize(text, voice, rate, pitch, volume, mp3, srt)
+            if natural or has_tags(text):
+                size, nseg, unknown = await synthesize_script(text, voice, base, natural, level, mp3, srt)
+            else:
+                size = await synthesize(text, voice, rate, pitch, volume, mp3, srt)
+        except ValueError as e:
+            return err(str(e))
         except Exception as e:  # noqa: BLE001
             print(f"[x] {e.__class__.__name__}: {e}")
             return err(net_error_msg(e), 502)
@@ -196,6 +423,7 @@ async def tts(req):
         "rate": rate, "pitch": pitch, "volume": volume,
         "mp3": mp3.name, "srt": srt.name if srt else None,
         "duration": round(size * 8 / BITRATE, 2), "created": int(time.time()),
+        "natural": natural, "level": level if natural else None,
     }
     async with _hist_lock:
         h = load_hist()
@@ -205,8 +433,8 @@ async def tts(req):
                 if old.get(k) and (OUT / old[k]).exists():
                     (OUT / old[k]).unlink()
         save_hist(h[:MAX_HISTORY])
-    print(f"[✓] {item['duration']:.1f} วินาที · {voice} · {time.time() - t0:.1f}s · {mp3.name}")
-    return web.json_response(item)
+    print(f"[✓] {item['duration']:.1f} วินาที · {voice} · {nseg} ท่อน · {time.time() - t0:.1f}s · {mp3.name}")
+    return web.json_response({**item, "unknown_tags": unknown})
 
 
 @routes.post("/api/preview")
@@ -215,13 +443,20 @@ async def preview(req):
     voice = str(data.get("voice", ""))
     if not re.fullmatch(r"[A-Za-z]{2,3}-[A-Za-z]{2,4}-[A-Za-z]+Neural", voice):
         return err("เสียงไม่ถูกต้อง")
-    rate, pitch, volume = fmt_params(data.get("rate", 0), data.get("pitch", 0), data.get("volume", 0))
-    key = re.sub(r"[^A-Za-z0-9+-]", "", f"{voice}_{rate}_{pitch}_{volume}")
+    base = tuple(int(data.get(k, 0) or 0) for k in ("rate", "pitch", "volume"))
+    rate, pitch, volume = fmt_params(*base)
+    natural = bool(data.get("natural", False))
+    level = max(0, min(100, int(data.get("level", 60) or 0)))
+    nat = f"_n{level}" if natural else ""
+    key = re.sub(r"[^A-Za-z0-9+-]", "", f"{voice}_{rate}_{pitch}_{volume}{nat}")
     p = PREV / f"{key}.mp3"
     if not p.exists():
         async with _sem:
             try:
-                await synthesize(PREVIEW_TEXT, voice, rate, pitch, volume, p, None)
+                if natural:
+                    await synthesize_script(PREVIEW_TEXT_NATURAL, voice, base, True, level, p, None)
+                else:
+                    await synthesize(PREVIEW_TEXT, voice, rate, pitch, volume, p, None)
             except Exception as e:  # noqa: BLE001
                 return err(net_error_msg(e), 502)
     return web.json_response({"url": f"/files/.previews/{p.name}"})
